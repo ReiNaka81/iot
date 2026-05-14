@@ -16,7 +16,7 @@ import pymongo
 from sshtunnel import SSHTunnelForwarder
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "sever"))
+sys.path.insert(0, str(HERE.parent / "server"))
 from csv_to_json import csv_to_docs  # noqa: E402
 
 

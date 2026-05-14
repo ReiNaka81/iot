@@ -49,6 +49,9 @@ hardware/*/libraries/*/examples/
 # Serial port config / logs
 *.log
 
+# Project outputs / temp
+raspi/logs/
+
 # SSH keys
 id_rsa
 id_rsa.pub
