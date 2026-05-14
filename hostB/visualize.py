@@ -23,20 +23,28 @@ def visualize():
         return
 
     # グラフの作成
-    fig, ax1 = plt.subplots(figsize=(10, 5))
+    fig, ax1 = plt.subplots(figsize=(14, 6))
+
+    x_idx = range(len(times))
 
     # 折れ線グラフ（分散値）
-    ax1.plot(times, variances, color='blue', marker='o', label='Variance')
+    ax1.plot(x_idx, variances, color='blue', marker='o', markersize=4, label='Variance')
     ax1.set_xlabel('Time Window')
     ax1.set_ylabel('Variance', color='blue')
     ax1.tick_params(axis='y', labelcolor='blue')
 
-    # 状態のテキスト表示
-    for i, state in enumerate(states):
-        ax1.text(times[i], variances[i], f'  {state}', fontsize=9, verticalalignment='bottom')
+    # 状態のテキスト表示（分散が高い点のみラベル表示）
+    threshold = sorted(variances)[-max(1, len(variances) // 10)]
+    for i, (state, var) in enumerate(zip(states, variances)):
+        if var >= threshold:
+            ax1.text(i, var, f'  {state}', fontsize=8, verticalalignment='bottom')
+
+    # X軸は間引いて表示
+    step = max(1, len(times) // 20)
+    ax1.set_xticks(list(x_idx)[::step])
+    ax1.set_xticklabels(times[::step], rotation=45, ha='right', fontsize=8)
 
     plt.title('Walk/RUN/STILL classification')
-    plt.xticks(rotation=45)
     plt.tight_layout()
     
     # グラフを表示（または保存）

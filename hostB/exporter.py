@@ -1,15 +1,30 @@
 from pymongo import MongoClient
+from sshtunnel import SSHTunnelForwarder
+
+SSH_HOST = "133.19.7.2"
+SSH_PORT = 22
+SSH_USERNAME = "iot"
+SSH_PASSWORD = "!0TeXpER!mENt"
+
+DB_HOST = "192.168.1.4"
+DB_PORT = 59501
+DB_NAME = "iot"
+COLLECTION_NAME = "accel_raw"
+
 
 def export():
-    # Host CのIPアドレス
-    client = MongoClient("mongodb://172.31.199.:27017/") 
-    # 加速度が入ったデータベース名を指定．
-    db = client["iot"]
-    collection = db["accel_raw"]
+    with SSHTunnelForwarder(
+        (SSH_HOST, SSH_PORT),
+        ssh_username=SSH_USERNAME,
+        ssh_password=SSH_PASSWORD,
+        remote_bind_address=(DB_HOST, DB_PORT),
+    ) as tunnel:
+        client = MongoClient("127.0.0.1", tunnel.local_bind_port)
+        collection = client[DB_NAME][COLLECTION_NAME]
 
-    # データを古い順に取得して標準出力へ
-    for doc in collection.find().sort("t", 1):
-        print(f"{doc['t']}\t{doc['x']}\t{doc['y']}\t{doc['z']}")
+        query = {"timestamp": {"$exists": True}, "x": {"$exists": True}, "y": {"$exists": True}, "z": {"$exists": True}}
+        for doc in collection.find(query).sort("timestamp", 1):
+            print(f"{doc['timestamp']}\t{doc['x']}\t{doc['y']}\t{doc['z']}")
 
 if __name__ == "__main__":
     export()
