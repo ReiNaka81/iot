@@ -1,33 +1,25 @@
 """
 receiver.py
 Spresense (sender.ino, KX126) から CSV "x,y,z" を受信し、
-ノルムの移動分散から STILL / WALK / RUN を分類して標準出力する。
-さらに 10 秒ごとに分類結果を CSV にまとめて FTP 送信する。
+タイムスタンプを付けて 10秒ごとに CSV にまとめて /logs に保存する。
+
+CSV 形式: timestamp,x,y,z
+分類処理 (STILL/WALK/RUN) は MapReduce 側で行うため、ここでは生データのみ扱う。
 
 使い方:
     python3 receiver.py [--port COM7] [--baud 115200]
 """
 import argparse
-import math
 import os
 import sys
 import time
-from collections import deque
 from datetime import datetime
 
 import serial
 
-from ftp import upload
-
 DEFAULT_PORT = "/dev/ttyUSB0"
 DEFAULT_BAUD = 115200
-WINDOW = 20              # 約1秒 @ 20Hz
-FLUSH_INTERVAL_SEC = 10  # FTP 送信間隔
-
-# 分類しきい値 (G^2): 環境に合わせて要調整
-STILL_VAR_MAX = 0.02   # これ未満は STILL
-WALK_VAR_MAX  = 0.50   # これ未満は WALK、それ以上は RUN
-
+FLUSH_INTERVAL_SEC = 10  # CSV 書き出し間隔
 LOG_DIR = "logs"
 
 
@@ -38,16 +30,8 @@ def parse_args():
     return p.parse_args()
 
 
-def classify(var: float) -> str:
-    if var < STILL_VAR_MAX:
-        return "STILL"
-    if var < WALK_VAR_MAX:
-        return "WALK"
-    return "RUN"
-
-
 def flush(buffer: list) -> None:
-    """buffer 内のレコードを CSV に保存して FTP 送信。失敗時はローカルだけ残す。"""
+    """buffer 内のレコードを /logs/accel_*.csv に保存。"""
     if not buffer:
         return
     os.makedirs(LOG_DIR, exist_ok=True)
@@ -58,12 +42,9 @@ def flush(buffer: list) -> None:
     with open(local_path, "w") as f:
         f.write("timestamp,x,y,z\n")
         for r in buffer:
-            f.write(
-                f"{r['t']},{r['x']:.3f},{r['y']:.3f},{r['z']:.3f}\n"
-            )
+            f.write(f"{r['t']},{r['x']:.3f},{r['y']:.3f},{r['z']:.3f}\n")
     print(f"# saved: {local_path} ({len(buffer)} rows)", flush=True)
 
-    
 
 def main():
     args = parse_args()
@@ -72,10 +53,8 @@ def main():
     ser.reset_input_buffer()
     print(f"# connected: {args.port} @ {args.baud}", flush=True)
 
-    norms = deque(maxlen=WINDOW)
     buffer: list = []
     last_flush = time.time()
-    prev_state = None
 
     try:
         while True:
@@ -87,36 +66,11 @@ def main():
                     try:
                         x, y, z = (float(p) for p in parts)
                     except ValueError:
-                        x = None
-                    if x is not None:
-                        norm = math.sqrt(x * x + y * y + z * z)
-                        norms.append(norm)
+                        continue
+                    now = datetime.now().isoformat(timespec="milliseconds")
+                    buffer.append({"t": now, "x": x, "y": y, "z": z})
+                    print(f"{now} x={x:+.3f} y={y:+.3f} z={z:+.3f}", flush=True)
 
-                        if len(norms) < WINDOW:
-                            print(
-                                f"x={x:+.3f} y={y:+.3f} z={z:+.3f} "
-                                f"|a|={norm:.3f} (warming up)",
-                                flush=True,
-                            )
-                        else:
-                            mean = sum(norms) / WINDOW
-                            var = sum((n - mean) ** 2 for n in norms) / WINDOW
-                            state = classify(var)
-
-                            marker = " *" if state != prev_state else ""
-                            prev_state = state
-                            now = datetime.now().isoformat(timespec="milliseconds")
-                            print(
-                                f"{now} x={x:+.3f} y={y:+.3f} z={z:+.3f} "
-                                f"|a|={norm:.3f} var={var:.4f} [{state}]{marker}",
-                                flush=True,
-                            )
-                            buffer.append(
-                                {"t": now, "x": x, "y": y, "z": z}
-                                )
-                                
-
-            # 10 秒経過したら FTP 送信
             if time.time() - last_flush >= FLUSH_INTERVAL_SEC:
                 flush(buffer)
                 buffer = []
@@ -125,7 +79,7 @@ def main():
     except KeyboardInterrupt:
         print("\n# stopping...", flush=True)
     finally:
-        flush(buffer)  # 残りも送信
+        flush(buffer)
         ser.close()
         print("# closed", flush=True)
 
